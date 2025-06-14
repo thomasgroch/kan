@@ -1,18 +1,23 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 # Install system dependencies for native modules
 RUN apk add --no-cache git python3 make g++
 
-# Install pnpm
-RUN npm install -g pnpm
+# Install pnpm and dotenv-cli
+RUN npm install -g pnpm dotenv-cli
 
 WORKDIR /app
 
-# Copy package files
-COPY package.json pnpm-lock.yaml* ./
+# Copy workspace configuration
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-# Install dependencies
+# Create directory structure and copy package.json files
+COPY apps/ ./apps/
+COPY packages/ ./packages/
+COPY tooling/ ./tooling/
+
+# Install all dependencies
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
@@ -25,26 +30,27 @@ ARG NEXT_PUBLIC_AVATAR_BUCKET_NAME
 ARG NEXT_PUBLIC_ALLOW_CREDENTIALS
 ARG NEXT_PUBLIC_DISABLE_SIGN_UP
 
+# Set environment variables for build
+ENV BETTER_AUTH_SECRET="dummy-secret-for-build"
+ENV POSTGRES_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+ENV NEXT_PUBLIC_BASE_URL="https://localhost:3000"
+
 # Build the application
 RUN pnpm build
 
 # Production stage
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 
 WORKDIR /app
 
-# Copy built assets from builder
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
+# Copy the entire built workspace from builder
+COPY --from=builder /app ./
 
-# Install production dependencies
-RUN npm install -g pnpm && \
-    pnpm install --prod --frozen-lockfile
+# Install pnpm and dotenv-cli
+RUN npm install -g pnpm dotenv-cli
 
 # Expose the port
 EXPOSE 3000
 
-# Start the application
-CMD ["pnpm", "start"]
+# Start the web application
+CMD ["pnpm", "--filter", "@kan/web", "start"]
